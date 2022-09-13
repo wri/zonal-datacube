@@ -1,0 +1,140 @@
+{
+  "type": "Feature",
+  "stac_version": "1.0.0",
+  "id": "checkerboard",
+  "properties": {
+    "proj:epsg": 4326,
+    "proj:geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            10,
+            0
+          ],
+          [
+            10,
+            10
+          ],
+          [
+            0,
+            10
+          ],
+          [
+            0,
+            0
+          ]
+        ]
+      ]
+    },
+    "proj:bbox": [
+      0,
+      0,
+      10,
+      10
+    ],
+    "proj:shape": [
+      100,
+      100
+    ],
+    "proj:transform": [
+      0.1,
+      0,
+      0,
+      0,
+      -0.1,
+      10,
+      0,
+      0,
+      1
+    ],
+    "datetime": "2000-01-01T00:00:00"
+  },
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          0,
+          0
+        ],
+        [
+          10,
+          0
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          0,
+          10
+        ],
+        [
+          0,
+          0
+        ]
+      ]
+    ]
+  },
+  "links": [],
+  "assets": {
+    "checkerboard": {
+      "href": "../rasters/checkerboard.tif",
+      "raster:bands": [
+        {
+          "data_type": "uint8",
+          "scale": 1,
+          "offset": 0,
+          "sampling": "area",
+          "statistics": {
+            "mean": 0.5,
+            "minimum": 0,
+            "maximum": 1,
+            "stddev": 0.5,
+            "valid_percent": 0.01
+          },
+          "histogram": {
+            "count": 11,
+            "min": 0,
+            "max": 1,
+            "buckets": [
+              5000,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              5000
+            ]
+          }
+        }
+      ],
+      "eo:bands": [
+        {
+          "name": "b1",
+          "description": "gray"
+        }
+      ],
+      "roles": []
+    }
+  },
+  "bbox": [
+    0,
+    0,
+    10,
+    10
+  ],
+  "stac_extensions": [
+    "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/eo/v1.0.0/schema.json"
+  ]
+}

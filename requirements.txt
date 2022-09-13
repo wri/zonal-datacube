@@ -1,0 +1,12 @@
+dask
+geopandas
+shapely
+odc-stac
+rasterio
+xarray
+pytest
+rtree
+matplotlib
+rio-stac
+stackstac
+pystac_client
