@@ -8,6 +8,7 @@ from rasterio.transform import from_origin
 from shapely.geometry import Polygon
 
 from zonal_datacube.fishnet import fishnet
+from zonal_datacube.zonal_datacube import ZonalDataCube
 
 
 def create_diamond(center_x, center_y, length):
@@ -72,6 +73,11 @@ def stac_items():
 @pytest.fixture
 def small_datacube(stac_items):
     return stac.load(stac_items, bbox=(0, 0, 1, 1))
+
+
+@pytest.fixture()
+def small_zonal_datacube(small_diamond_features, stac_items):
+    return ZonalDataCube(small_diamond_features, stac_items)
 
 
 # checkerboard = np.indices((100, 100)).sum(axis=0) % 2
