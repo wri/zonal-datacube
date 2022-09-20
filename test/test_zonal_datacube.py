@@ -1,5 +1,5 @@
 import geopandas as gpd
-from shapely.geometry import box
+import pandas as pd
 
 from zonal_datacube.analysis_functions import AnalysisFunction
 from zonal_datacube.zonal_datacube import ZonalDataCube
@@ -7,16 +7,15 @@ from zonal_datacube.zonal_datacube import ZonalDataCube
 
 def test_mask_datacube(small_diamond_features, small_datacube):
     geom = small_diamond_features["geometry"][0]
-    tile_geom = geom.intersection(box(0, 0, 1, 1))
-    masked_datacube = ZonalDataCube._mask_datacube(tile_geom, small_datacube)
+    masked_datacube = ZonalDataCube._mask_datacube(geom, small_datacube, (0, 0, 1, 1))
 
     # check shape is maintained
     assert masked_datacube.longitude.shape[0] == 10
     assert masked_datacube.latitude.shape[0] == 10
 
-    # check mask correctly applyed to data variables
-    assert masked_datacube.checkerboard.sum() == 25
-    assert masked_datacube.half_and_half_hotdog.sum() == 45
+    # check mask correctly applied to data variables
+    assert masked_datacube.checkerboard.sum() == 4
+    assert masked_datacube.half_and_half_hotdog.sum() == 10
 
 
 def test_analyze_partition(small_diamond_features_fishnetted, stac_items):
@@ -24,9 +23,18 @@ def test_analyze_partition(small_diamond_features_fishnetted, stac_items):
         return 1
 
     analysis_funcs = {"results": AnalysisFunction(func=func, agg="sum")}
+    empty_result = pd.DataFrame(columns=["id", "results"])
+
+    small_diamond_features_fishnetted["zone_wkt"] = small_diamond_features_fishnetted[
+        "geometry"
+    ].apply(lambda x: x.wkt)
+    del small_diamond_features_fishnetted["geometry"]
 
     result = ZonalDataCube._analyze_partition(
-        small_diamond_features_fishnetted, stac_items, analysis_funcs
+        small_diamond_features_fishnetted,
+        stac_items,
+        analysis_funcs,
+        empty_result=empty_result,
     )
 
     assert result.groupby(["id"]).sum().results.to_list() == [4, 24]
@@ -71,6 +79,18 @@ def test_get_meta(small_diamond_features):
             assert actual_dtypes[col] == expected_dtypes[col]
 
 
-def test_sum(small_zonal_datacube):
-    results = small_zonal_datacube.analyze(analysis_funcs=["sum"])
-    assert results
+def test_sum(small_zonal_datacube, small_datacube_expected_stats):
+    actual_results = small_zonal_datacube.analyze(analysis_funcs=["sum"])
+
+    assert (
+        small_datacube_expected_stats["sum_checkerboard"]
+        == actual_results["sum_checkerboard"]
+    ).all()
+    assert (
+        small_datacube_expected_stats["sum_half_and_half_hotdog"]
+        == actual_results["sum_half_and_half_hotdog"]
+    ).all()
+    assert (
+        small_datacube_expected_stats["sum_half_and_half_hamburger"]
+        == actual_results["sum_half_and_half_hamburger"]
+    ).all()

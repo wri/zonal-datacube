@@ -51,7 +51,7 @@ class ZonalDataCube:
         self.stac_items = self._get_stac_items(stac_items, self.spatial_only)
         self.attribute_columns = self._get_attribute_columns()
 
-        self.bounds = self.zones.total_bounds
+        self.bounds = (0, 0, 10, 10)  # self.zones.total_bounds
 
         # TODO calculate optimal cell size and partitions based on
         #  STAC items and features
@@ -83,18 +83,20 @@ class ZonalDataCube:
         elif isinstance(analysis_funcs, dict):
             raise NotImplementedError()
 
-        meta1 = self._get_meta(self.zones, analysis_funcs_parsed)
+        meta = self._get_meta(self.zones, analysis_funcs_parsed)
         mapped_partitions = self.dask_zones.map_partitions(
             self._analyze_partition,
             self.stac_items,
             analysis_funcs_parsed,
-            meta1,
-            meta=meta1,
+            empty_result=meta,  # TODO for some reason, this has to be a kwarg?
+            meta=meta,
         )
 
         agg_spec = combine_agg_dicts(analysis_funcs_parsed)
-        grouped_results = mapped_partitions.groupby(self.attribute_columns).agg(
-            agg_spec
+        grouped_results = (
+            mapped_partitions.groupby(self.attribute_columns)
+            .agg(agg_spec)
+            .reset_index()
         )
 
         return grouped_results.compute()
@@ -103,8 +105,8 @@ class ZonalDataCube:
         return list(set(self.zones.columns.to_list()) - {"geometry"})
 
     @staticmethod
-    def _analyze_partition(partition, stac_items, analysis_funcs, meta1):
-        partition_result = meta1.copy()
+    def _analyze_partition(partition, stac_items, analysis_funcs, empty_result=None):
+        partition_result = empty_result.copy()
         result_row_number = 0
 
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
@@ -113,13 +115,16 @@ class ZonalDataCube:
 
             for _, zone in zones_per_tile.iterrows():
                 zone_geometry = wkt.loads(zone.zone_wkt)
-                masked_datacube = ZonalDataCube._mask_datacube(zone_geometry, datacube)
+                # tiled_zone = tile.intersection(zone_geometry)
+                masked_datacube = ZonalDataCube._mask_datacube(
+                    zone_geometry, datacube, tile.bounds
+                )
 
                 result = zone.copy()
                 for column, func_spec in analysis_funcs.items():
                     func_result = func_spec.func(zone.drop("zone_wkt"), masked_datacube)
 
-                    if isinstance(result, pd.Series):
+                    if isinstance(func_result, pd.Series):
                         result = pd.concat([result, func_result])
                     else:
                         result[column] = func_spec.func(
@@ -195,7 +200,7 @@ class ZonalDataCube:
         return new_items
 
     @staticmethod
-    def _mask_datacube(geom, datacube):
+    def _mask_datacube(geom, datacube, bounds, all_touched=False):
         if not geom.is_valid:
             geom = geom.buffer(0)
 
@@ -205,8 +210,9 @@ class ZonalDataCube:
         geom_mask = features.geometry_mask(
             [geom],
             out_shape=(height, width),
-            transform=rasterio.transform.from_bounds(*geom.bounds, width, height),
+            transform=rasterio.transform.from_bounds(*bounds, width, height),
             invert=True,
+            all_touched=all_touched,
         )
 
         return geom_mask * datacube

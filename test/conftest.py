@@ -1,10 +1,12 @@
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pystac
 import pytest
 import rasterio
 from odc import stac
 from rasterio.transform import from_origin
+from rasterstats import zonal_stats
 from shapely.geometry import Polygon
 
 from zonal_datacube.fishnet import fishnet
@@ -78,6 +80,33 @@ def small_datacube(stac_items):
 @pytest.fixture()
 def small_zonal_datacube(small_diamond_features, stac_items):
     return ZonalDataCube(small_diamond_features, stac_items)
+
+
+@pytest.fixture()
+def small_datacube_expected_stats(small_diamond_features, stac_items):
+    dataframes = []
+    stats = ["min", "max", "count", "sum"]
+    for item in stac_items:
+        # just pull full path from STAC metadta
+        asset_path = list(item.assets.values())[0].get_absolute_href()
+
+        # get basic rasterio on whole raster in memory
+        asset_results = zonal_stats(
+            small_diamond_features,
+            asset_path,
+            stats=["min", "max", "count", "sum"],
+        )
+
+        col_renames = {stat: f"{stat}_{item.id}" for stat in stats}
+        df = (
+            pd.DataFrame(asset_results)
+            .reset_index()
+            .rename(columns={"index": "id", **col_renames})
+        )
+
+        dataframes.append(df)
+
+    return pd.concat(dataframes, axis=1)
 
 
 # checkerboard = np.indices((100, 100)).sum(axis=0) % 2
