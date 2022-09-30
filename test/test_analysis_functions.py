@@ -1,7 +1,10 @@
+import pandas as pd
+
 from zonal_datacube.analysis_functions import (
     AnalysisFunction,
     combine_agg_dicts,
     get_default_analysis_function,
+    hectare_area,
     sum,
 )
 
@@ -53,3 +56,11 @@ def test_combine_agg_dicts():
     }
 
     assert actual == expected
+
+
+def test_hectare_area(small_datacube, small_diamond_features):
+    attributes = pd.Series({"id": 0})
+    area = hectare_area(attributes, small_datacube)
+
+    # TODO compare to equal area projection
+    assert area.all()

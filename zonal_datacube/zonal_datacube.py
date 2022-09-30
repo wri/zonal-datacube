@@ -83,12 +83,11 @@ class ZonalDataCube:
         elif isinstance(analysis_funcs, dict):
             raise NotImplementedError()
 
-        meta = self._get_meta(self.zones, analysis_funcs_parsed)
+        meta = self._get_meta(self.dask_zones, analysis_funcs_parsed)
         mapped_partitions = self.dask_zones.map_partitions(
             self._analyze_partition,
             self.stac_items,
             analysis_funcs_parsed,
-            empty_result=meta,  # TODO for some reason, this has to be a kwarg?
             meta=meta,
         )
 
@@ -105,36 +104,35 @@ class ZonalDataCube:
         return list(set(self.zones.columns.to_list()) - {"geometry"})
 
     @staticmethod
-    def _analyze_partition(partition, stac_items, analysis_funcs, empty_result=None):
-        partition_result = empty_result.copy()
-        result_row_number = 0
+    def _analyze_partition(partition, stac_items, analysis_funcs):
+        partition_results = []
 
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
             tile = wkt.loads(fishnet_wkt)
             datacube = stac.load(stac_items, bbox=tile.bounds)
+            masked_datacube = ZonalDataCube._set_no_data_mask(datacube)
 
             for _, zone in zones_per_tile.iterrows():
                 zone_geometry = wkt.loads(zone.zone_wkt)
-                # tiled_zone = tile.intersection(zone_geometry)
-                masked_datacube = ZonalDataCube._mask_datacube(
-                    zone_geometry, datacube, tile.bounds
+                geom_masked_datacube = ZonalDataCube._mask_datacube_by_geom(
+                    zone_geometry, masked_datacube, tile.bounds
                 )
 
-                result = zone.copy()
+                zone_attributes = zone.drop("zone_wkt")
+                result = zone_attributes.copy()
                 for column, func_spec in analysis_funcs.items():
-                    func_result = func_spec.func(zone.drop("zone_wkt"), masked_datacube)
+                    func_result = func_spec.func(zone_attributes, geom_masked_datacube)
 
                     if isinstance(func_result, pd.Series):
                         result = pd.concat([result, func_result])
                     else:
                         result[column] = func_spec.func(
-                            zone.drop("zone_wkt"), masked_datacube
+                            zone_attributes, masked_datacube
                         )
 
-                partition_result.loc[result_row_number] = result
-                result_row_number += 1
+                partition_results.append(result)
 
-        return partition_result
+        return pd.DataFrame(partition_results)
 
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
@@ -162,6 +160,12 @@ class ZonalDataCube:
     @staticmethod
     def _get_meta(zones, analysis_funcs):
         meta = dd.utils.make_meta(zones)
+
+        # drop geom columns for meta
+        if "zone_wkt" in meta:
+            meta = meta.drop("zone_wkt", axis=1)
+        elif "fishnet_wkt" in meta:
+            meta = meta.drop("fishnet_wkt", axis=1)
 
         for col, func in analysis_funcs.items():
             if func.meta:
@@ -200,7 +204,7 @@ class ZonalDataCube:
         return new_items
 
     @staticmethod
-    def _mask_datacube(geom, datacube, bounds, all_touched=False):
+    def _mask_datacube_by_geom(geom, datacube, bounds, all_touched=False):
         if not geom.is_valid:
             geom = geom.buffer(0)
 
@@ -215,7 +219,23 @@ class ZonalDataCube:
             all_touched=all_touched,
         )
 
-        return geom_mask * datacube
+        return datacube.where(geom_mask)
+
+    @staticmethod
+    def _set_no_data_mask(datacube):
+        """ODC STAC attaches the nodata value from STAC as an attribute to each
+        data variable, but doesn't actually apply it. This function will
+        iterate through each data variable and apply each nodata value as a
+        mask.
+
+        :param datacube: Datacube to mask
+        :return:
+        """
+
+        for name, da in datacube.data_vars.items():
+            datacube[name] = da.where(da != da.nodata)
+
+        return datacube
 
 
 # items = []

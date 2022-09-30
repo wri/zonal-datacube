@@ -85,7 +85,7 @@ def small_zonal_datacube(small_diamond_features, stac_items):
 @pytest.fixture()
 def small_datacube_expected_stats(small_diamond_features, stac_items):
     dataframes = []
-    stats = ["min", "max", "count", "sum"]
+    stats = ["min", "max", "count", "sum", "mean"]
     for item in stac_items:
         # just pull full path from STAC metadta
         asset_path = list(item.assets.values())[0].get_absolute_href()
@@ -94,7 +94,7 @@ def small_datacube_expected_stats(small_diamond_features, stac_items):
         asset_results = zonal_stats(
             small_diamond_features,
             asset_path,
-            stats=["min", "max", "count", "sum"],
+            stats=stats,
         )
 
         col_renames = {stat: f"{stat}_{item.id}" for stat in stats}

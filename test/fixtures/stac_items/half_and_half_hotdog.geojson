@@ -91,6 +91,7 @@
           "scale": 1,
           "offset": 0,
           "sampling": "area",
+          "nodata": 0,
           "statistics": {
             "mean": 0.5,
             "minimum": 0,

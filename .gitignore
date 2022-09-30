@@ -18,3 +18,7 @@ terraform/*
 # Virtualenvs
 *venv*
 
+# pytest
+.pytest_cache
+
+.DS_Store

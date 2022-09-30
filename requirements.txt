@@ -1,4 +1,5 @@
 dask
+dask[distributed]
 geopandas
 shapely
 odc-stac
@@ -10,3 +11,4 @@ matplotlib
 rio-stac
 stackstac
 pystac_client
+s3fs

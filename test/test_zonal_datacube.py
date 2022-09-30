@@ -1,5 +1,6 @@
 import geopandas as gpd
-import pandas as pd
+from dask.distributed import Client, LocalCluster
+from pandas.testing import assert_frame_equal
 
 from zonal_datacube.analysis_functions import AnalysisFunction
 from zonal_datacube.zonal_datacube import ZonalDataCube
@@ -7,7 +8,9 @@ from zonal_datacube.zonal_datacube import ZonalDataCube
 
 def test_mask_datacube(small_diamond_features, small_datacube):
     geom = small_diamond_features["geometry"][0]
-    masked_datacube = ZonalDataCube._mask_datacube(geom, small_datacube, (0, 0, 1, 1))
+    masked_datacube = ZonalDataCube._mask_datacube_by_geom(
+        geom, small_datacube, (0, 0, 1, 1)
+    )
 
     # check shape is maintained
     assert masked_datacube.longitude.shape[0] == 10
@@ -23,7 +26,6 @@ def test_analyze_partition(small_diamond_features_fishnetted, stac_items):
         return 1
 
     analysis_funcs = {"results": AnalysisFunction(func=func, agg="sum")}
-    empty_result = pd.DataFrame(columns=["id", "results"])
 
     small_diamond_features_fishnetted["zone_wkt"] = small_diamond_features_fishnetted[
         "geometry"
@@ -31,10 +33,7 @@ def test_analyze_partition(small_diamond_features_fishnetted, stac_items):
     del small_diamond_features_fishnetted["geometry"]
 
     result = ZonalDataCube._analyze_partition(
-        small_diamond_features_fishnetted,
-        stac_items,
-        analysis_funcs,
-        empty_result=empty_result,
+        small_diamond_features_fishnetted, stac_items, analysis_funcs
     )
 
     assert result.groupby(["id"]).sum().results.to_list() == [4, 24]
@@ -50,7 +49,7 @@ def test_get_dask_zones(small_diamond_features):
     assert dask_zones.compute().shape == (28, 2)
 
 
-def test_get_meta(small_diamond_features):
+def test_get_meta(small_diamond_features_fishnetted):
     def func(feature, datacube):
         return 1
 
@@ -61,7 +60,7 @@ def test_get_meta(small_diamond_features):
             func=func, agg="sum", meta={"third_col1": "int32", "third_col2": "float32"}
         ),
     }
-    meta = ZonalDataCube._get_meta(small_diamond_features, analysis_funcs)
+    meta = ZonalDataCube._get_meta(small_diamond_features_fishnetted, analysis_funcs)
 
     actual_dtypes = meta.dtypes.to_dict()
     expected_dtypes = {
@@ -94,3 +93,27 @@ def test_sum(small_zonal_datacube, small_datacube_expected_stats):
         small_datacube_expected_stats["sum_half_and_half_hamburger"]
         == actual_results["sum_half_and_half_hamburger"]
     ).all()
+
+
+def test_multiple_stats(small_zonal_datacube, small_datacube_expected_stats):
+    stats = ["count", "min", "max", "mean"]
+    rasters = ["checkerboard", "half_and_half_hotdog", "half_and_half_hamburger"]
+    actual_results = small_zonal_datacube.analyze(analysis_funcs=stats)
+
+    columns = [f"{stat}_{raster}" for stat in stats for raster in rasters]
+
+    assert_frame_equal(
+        actual_results[columns],
+        small_datacube_expected_stats[columns],
+        check_dtype=False,
+    )
+
+
+def test_with_client(small_zonal_datacube, small_datacube_expected_stats):
+    cluster = LocalCluster(n_workers=4, threads_per_worker=2, memory_limit="1GB")
+    client = Client(cluster)  # noqa F841
+
+    # just testing no exceptions raised from trying to run via a cluster,
+    # which can happen if you try to pass unserializable types between
+    # workers
+    small_zonal_datacube.analyze(analysis_funcs=["sum"])
