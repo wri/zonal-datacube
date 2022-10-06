@@ -3,7 +3,7 @@ from typing import Callable, Dict, Literal, Optional, Union
 
 from geopandas import GeoDataFrame
 from numpy import dtype
-from pandas import DataFrame
+from pandas import DataFrame, Series
 from xarray import Dataset
 
 from .geo_utils import get_hectare_area
@@ -20,91 +20,77 @@ class AnalysisFunction:
     meta: Optional[Dict[str, dtype]] = None
 
 
-def sum(zone, datacube):
-    return datacube.sum().to_pandas().add_prefix("sum_")
+def _sum_func(zone, datacube):
+    return Series({"sum": datacube.sum().to_pandas().sum()})
 
 
-def count(zone, datacube):
+def _count_func(zone, datacube):
     # TODO how to propagate NoData value?
-    return datacube.count().to_pandas().add_prefix("count_")
+    return Series({"count": datacube.count().to_pandas().sum()})
 
 
-def mean(zone, datacube):
-    return datacube.mean().to_pandas().add_prefix("mean_")
+def _mean_func(zone, datacube):
+    return Series({"mean": datacube.mean().to_pandas().mean()})
 
 
-def min(zone, datacube):
-    return datacube.min().to_pandas().add_prefix("min_")
+def _min_func(zone, datacube):
+    return Series({"min": datacube.min().to_pandas().min()})
 
 
-def max(zone, datacube):
-    return datacube.max().to_pandas().add_prefix("max_")
+def _max_func(zone, datacube):
+    return Series({"max": datacube.max().to_pandas().max()})
 
 
-def hectare_area(zone, datacube):
+def _hectare_area_func(zone, datacube):
     pixel_width = datacube.latitude[0] - datacube.latitude[1]
     hectare_area_per_latitude = get_hectare_area(datacube.latitude, pixel_width)
     count_per_latitude = datacube.count(dim=["longitude"])
     total_areas = (hectare_area_per_latitude * count_per_latitude).sum()
-    return total_areas.to_pandas().add_prefix("hectare_area_")
+    return Series({"hectare_area": total_areas.to_pandas().sum()})
 
 
-def get_default_analysis_function(func, stac_items):
-    """Get the AnalysisFunction for the default analysis function name. Default
-    analysis functions return a column for all STAC items with the the function
-    name prefixed to the STAC item ID (e.g. sum on stac_id_1 would become
-    sum_stac_id_1). Default function columns are always dtype float64.
+sum = AnalysisFunction(
+    func=_sum_func,
+    agg={"sum": "sum"},
+    meta={"sum": "float64"},
+)
 
-    :param func: Default function name, one of (sum|mean|min|max)
-    :param stac_items: STAC items to be processed by analysis function
-    :return:
-        The AnalysisFunction object representing the default function
-    """
-    result_columns = [f"{func}_" + item.id for item in stac_items]
-    meta = {col: "float64" for col in result_columns}
+count = AnalysisFunction(
+    func=_count_func,
+    agg={"count": "sum"},
+    meta={"count": "float64"},
+)
 
-    return {
-        "sum": AnalysisFunction(
-            func=sum,
-            agg={col: "sum" for col in result_columns},
-            meta=meta,
-        ),
-        "count": AnalysisFunction(
-            func=count,
-            agg={col: "sum" for col in result_columns},
-            meta=meta,
-        ),
-        "min": AnalysisFunction(
-            func=min,
-            agg={col: "min" for col in result_columns},
-            meta=meta,
-        ),
-        "max": AnalysisFunction(
-            func=max,
-            agg={col: "max" for col in result_columns},
-            meta=meta,
-        ),
-        "mean": AnalysisFunction(
-            func=mean,
-            agg={col: "mean" for col in result_columns},
-            meta=meta,
-        ),
-        "hectare_area": AnalysisFunction(
-            func=hectare_area,
-            agg={col: "sum" for col in result_columns},
-            meta=meta,
-        ),
-    }[func]
+mean = AnalysisFunction(
+    func=_mean_func,
+    agg={"mean": "mean"},
+    meta={"mean": "float64"},
+)
+
+min = AnalysisFunction(
+    func=_min_func,
+    agg={"min": "min"},
+    meta={"min": "float64"},
+)
+
+max = AnalysisFunction(
+    func=_max_func,
+    agg={"max": "max"},
+    meta={"max": "float64"},
+)
+
+hectare_area = AnalysisFunction(
+    func=_hectare_area_func,
+    agg={"hectare_area": "sum"},
+    meta={"hectare_area": "float64"},
+)
 
 
 def combine_agg_dicts(
-    analysis_functions: Dict[str, AnalysisFunction]
+    funcs: Dict[str, AnalysisFunction]
 ) -> Dict[str, agg_functions_type]:
     combined_agg = {}
-    for name, func in analysis_functions.items():
-        if isinstance(func.agg, dict):
-            combined_agg.update(func.agg)
-        else:
-            combined_agg[name] = func.agg
+    for func in funcs:
+        combined_agg.update(func.agg)
 
     return combined_agg

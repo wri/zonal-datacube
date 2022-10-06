@@ -13,7 +13,6 @@ from shapely import wkt
 from .analysis_functions import (
     AnalysisFunction,
     combine_agg_dicts,
-    get_default_analysis_function,
 )
 from .fishnet import fishnet
 
@@ -60,12 +59,12 @@ class ZonalDataCube:
         self.dask_zones = None  # get on first analysis
 
 
-    def analyze(self, analysis_funcs: Union[List[str], Dict[str, AnalysisFunction]]):
+    def analyze(self, funcs: List[AnalysisFunction]):
         """Run analyses on the datacube. This can default zonal statistics
         methods (e.g. sum, mean, max) or custom analysis functions that process
         the datacube.
 
-        :param analysis_funcs:
+        :param funcs:
             A list of the analysis functions to run across the datacube.
             The list can either be the name of a default statistics function
             (count, sum, mean, min, max, area) or a custom AnalysisFunction.
@@ -73,13 +72,6 @@ class ZonalDataCube:
             A GeoPandas DataFrame containing the original geometry and attributes,
             as well additional attributes added from the analyses.
         """
-        if isinstance(analysis_funcs, list):
-            cast(List[str], analysis_funcs)
-            analysis_funcs_parsed = self._get_default_analysis_funcs(
-                analysis_funcs, self.stac_items
-            )
-        elif isinstance(analysis_funcs, dict):
-            raise NotImplementedError()
 
         # get on first analysis and then save as attribute
         if self.dask_zones is None:
@@ -87,15 +79,15 @@ class ZonalDataCube:
                 self.zones, self.bounds, self.cell_size, self.npartitions
             )
 
-        meta = self._get_meta(self.dask_zones, analysis_funcs_parsed)
+        meta = self._get_meta(self.dask_zones, funcs)
         mapped_partitions = self.dask_zones.map_partitions(
             self._analyze_partition,
             self.stac_items,
-            analysis_funcs_parsed,
+            funcs,
             meta=meta,
         )
 
-        agg_spec = combine_agg_dicts(analysis_funcs_parsed)
+        agg_spec = combine_agg_dicts(funcs)
         grouped_results = (
             mapped_partitions.groupby(self.attribute_columns)
             .agg(agg_spec)
@@ -108,7 +100,7 @@ class ZonalDataCube:
         return list(set(self.zones.columns.to_list()) - {"geometry"})
 
     @staticmethod
-    def _analyze_partition(partition, stac_items, analysis_funcs):
+    def _analyze_partition(partition, stac_items, funcs):
         partition_results = []
 
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
@@ -124,15 +116,9 @@ class ZonalDataCube:
 
                 zone_attributes = zone.drop("zone_wkt")
                 result = zone_attributes.copy()
-                for column, func_spec in analysis_funcs.items():
-                    func_result = func_spec.func(zone_attributes, geom_masked_datacube)
-
-                    if isinstance(func_result, pd.Series):
-                        result = pd.concat([result, func_result])
-                    else:
-                        result[column] = func_spec.func(
-                            zone_attributes, masked_datacube
-                        )
+                for func in funcs:
+                    func_result = func.func(zone_attributes, geom_masked_datacube)
+                    result = pd.concat([result, func_result])
 
                 partition_results.append(result)
 
@@ -162,7 +148,7 @@ class ZonalDataCube:
         return indexed_zones
 
     @staticmethod
-    def _get_meta(zones, analysis_funcs):
+    def _get_meta(zones, funcs):
         meta = dd.utils.make_meta(zones)
 
         # drop geom columns for meta
@@ -171,7 +157,7 @@ class ZonalDataCube:
         elif "fishnet_wkt" in meta:
             meta = meta.drop("fishnet_wkt", axis=1)
 
-        for col, func in analysis_funcs.items():
+        for func in funcs:
             if func.meta:
                 for col, type in func.meta.items():
                     meta[col] = pd.Series(dtype=type)
@@ -181,14 +167,6 @@ class ZonalDataCube:
 
         return meta
 
-    @staticmethod
-    def _get_default_analysis_funcs(
-        analysis_funcs: List[str], stac_items: List[pystac.Item]
-    ) -> Dict:
-        return {
-            func: get_default_analysis_function(func, stac_items)
-            for func in analysis_funcs
-        }
 
     def _get_stac_items(self, stac_items, spatial_only):
         """Create copies of the STAC items and mutate any properties for our

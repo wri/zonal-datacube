@@ -97,16 +97,21 @@ def small_datacube_expected_stats(small_diamond_features, stac_items):
             stats=stats,
         )
 
-        col_renames = {stat: f"{stat}_{item.id}" for stat in stats}
-        df = (
-            pd.DataFrame(asset_results)
-            .reset_index()
-            .rename(columns={"index": "id", **col_renames})
-        )
+        dataframes.append(pd.DataFrame(asset_results))
 
-        dataframes.append(df)
+    combined = pd.concat(dataframes, axis=0)
+    aggregated = combined.reset_index().groupby(["index"]).agg({
+        "sum": "sum",
+        "count": "sum",
+        "mean": "mean",
+        "min": "min",
+        "max": "max",
+    })
 
-    return pd.concat(dataframes, axis=1)
+    reindexed = aggregated.reset_index()
+    del reindexed["index"]
+
+    return reindexed
 
 
 # checkerboard = np.indices((100, 100)).sum(axis=0) % 2

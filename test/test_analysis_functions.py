@@ -3,28 +3,8 @@ import pandas as pd
 from zonal_datacube.analysis_functions import (
     AnalysisFunction,
     combine_agg_dicts,
-    get_default_analysis_function,
     hectare_area,
-    sum,
 )
-
-
-def test_get_default_analysis_function(stac_items):
-    expected_func = get_default_analysis_function("sum", stac_items)
-    actual_func = AnalysisFunction(
-        func=sum,
-        agg={
-            "sum_checkerboard": "sum",
-            "sum_half_and_half_hotdog": "sum",
-            "sum_half_and_half_hamburger": "sum",
-        },
-        meta={
-            "sum_checkerboard": "float64",
-            "sum_half_and_half_hotdog": "float64",
-            "sum_half_and_half_hamburger": "float64",
-        },
-    )
-    assert expected_func == actual_func
 
 
 def test_combine_agg_dicts():

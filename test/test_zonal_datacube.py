@@ -2,7 +2,7 @@ import geopandas as gpd
 from dask.distributed import Client, LocalCluster
 from pandas.testing import assert_frame_equal
 
-from zonal_datacube.analysis_functions import AnalysisFunction
+from zonal_datacube.analysis_functions import AnalysisFunction, sum, min, max, mean, count
 from zonal_datacube.zonal_datacube import ZonalDataCube
 
 
@@ -79,33 +79,21 @@ def test_get_meta(small_diamond_features_fishnetted):
 
 
 def test_sum(small_zonal_datacube, small_datacube_expected_stats):
-    actual_results = small_zonal_datacube.analyze(analysis_funcs=["sum"])
-
+    actual_results = small_zonal_datacube.analyze(funcs=[sum])
     assert (
-        small_datacube_expected_stats["sum_checkerboard"]
-        == actual_results["sum_checkerboard"]
-    ).all()
-    assert (
-        small_datacube_expected_stats["sum_half_and_half_hotdog"]
-        == actual_results["sum_half_and_half_hotdog"]
-    ).all()
-    assert (
-        small_datacube_expected_stats["sum_half_and_half_hamburger"]
-        == actual_results["sum_half_and_half_hamburger"]
+            small_datacube_expected_stats["sum"]
+            == actual_results["sum"]
     ).all()
 
 
 def test_multiple_stats(small_zonal_datacube, small_datacube_expected_stats):
-    stats = ["count", "min", "max", "mean"]
-    rasters = ["checkerboard", "half_and_half_hotdog", "half_and_half_hamburger"]
-    actual_results = small_zonal_datacube.analyze(analysis_funcs=stats)
-
-    columns = [f"{stat}_{raster}" for stat in stats for raster in rasters]
+    stats = [min, max, mean, count]
+    actual_results = small_zonal_datacube.analyze(funcs=stats)
 
     assert_frame_equal(
-        actual_results[columns],
-        small_datacube_expected_stats[columns],
-        check_dtype=False,
+        actual_results[["min", "max", "mean", "count"]],
+        small_datacube_expected_stats[["min", "max", "mean", "count"]],
+        check_dtype=False
     )
 
 
@@ -116,4 +104,4 @@ def test_with_client(small_zonal_datacube, small_datacube_expected_stats):
     # just testing no exceptions raised from trying to run via a cluster,
     # which can happen if you try to pass unserializable types between
     # workers
-    small_zonal_datacube.analyze(analysis_funcs=["sum"])
+    small_zonal_datacube.analyze(funcs=["sum"])
