@@ -51,16 +51,14 @@ class ZonalDataCube:
         self.stac_items = self._get_stac_items(stac_items, self.spatial_only)
         self.attribute_columns = self._get_attribute_columns()
 
-        self.bounds = (0, 0, 10, 10)  # self.zones.total_bounds
-
         # TODO calculate optimal cell size and partitions based on
         #  STAC items and features
         self.cell_size = 1
         self.npartitions = 200
 
-        self.dask_zones = self._get_dask_zones(
-            self.zones, self.bounds, self.cell_size, self.npartitions
-        )
+        self.bounds = self._get_rounded_bounding_box(self.zones.total_bounds, self.cell_size)
+        self.dask_zones = None  # get on first analysis
+
 
     def analyze(self, analysis_funcs: Union[List[str], Dict[str, AnalysisFunction]]):
         """Run analyses on the datacube. This can default zonal statistics
@@ -82,6 +80,12 @@ class ZonalDataCube:
             )
         elif isinstance(analysis_funcs, dict):
             raise NotImplementedError()
+
+        # get on first analysis and then save as attribute
+        if self.dask_zones is None:
+            self.dask_zones = self._get_dask_zones(
+                self.zones, self.bounds, self.cell_size, self.npartitions
+            )
 
         meta = self._get_meta(self.dask_zones, analysis_funcs_parsed)
         mapped_partitions = self.dask_zones.map_partitions(
@@ -236,6 +240,19 @@ class ZonalDataCube:
             datacube[name] = da.where(da != da.nodata)
 
         return datacube
+
+    @staticmethod
+    def _get_rounded_bounding_box(
+            geom, cell_size
+    ):
+        """Round bounding box to divide evenly into cell_size x cell_size tiles from
+        plane origin."""
+        return (
+            geom.bounds[0] - (geom.bounds[0] % cell_size),
+            geom.bounds[1] - (geom.bounds[1] % cell_size),
+            geom.bounds[2] + (-geom.bounds[2] % cell_size),
+            geom.bounds[3] + (-geom.bounds[3] % cell_size),
+        )
 
 
 # items = []
