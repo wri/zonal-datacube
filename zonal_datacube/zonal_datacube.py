@@ -243,15 +243,15 @@ class ZonalDataCube:
 
     @staticmethod
     def _get_rounded_bounding_box(
-            geom, cell_size
+            bounds, cell_size
     ):
         """Round bounding box to divide evenly into cell_size x cell_size tiles from
         plane origin."""
         return (
-            geom.bounds[0] - (geom.bounds[0] % cell_size),
-            geom.bounds[1] - (geom.bounds[1] % cell_size),
-            geom.bounds[2] + (-geom.bounds[2] % cell_size),
-            geom.bounds[3] + (-geom.bounds[3] % cell_size),
+            bounds[0] - (bounds[0] % cell_size),
+            bounds[1] - (bounds[1] % cell_size),
+            bounds[2] + (-bounds[2] % cell_size),
+            bounds[3] + (-bounds[3] % cell_size),
         )
 
 
