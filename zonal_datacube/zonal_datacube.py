@@ -105,7 +105,9 @@ class ZonalDataCube:
 
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
             tile = wkt.loads(fishnet_wkt)
-            datacube = stac.load(stac_items, bbox=tile.bounds)
+
+            # TODO how to determine CRS, resolution, dtype?
+            datacube = stac.load(stac_items, bbox=tile.bounds, crs="EPSG:4326", resolution=0.00025, dtype="float64")
             masked_datacube = ZonalDataCube._set_no_data_mask(datacube)
 
             for _, zone in zones_per_tile.iterrows():
@@ -126,6 +128,9 @@ class ZonalDataCube:
 
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
+        # normalize geometries
+        zones.geometry = zones.buffer(0)
+
         # fishnet features to make them partition more efficiently in Dask
         fishnetted_zones = fishnet(zones, *bounds, cell_size)
 
@@ -174,7 +179,7 @@ class ZonalDataCube:
         new_items = []
 
         for original_item in stac_items:
-            new_item = original_item.full_copy()
+            new_item = original_item.clone()
 
             # if spatial only, set all items to the same datetime so STAC clients
             # will see them as aligned on the same time dimension
