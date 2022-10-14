@@ -4,7 +4,7 @@ geopandas
 shapely
 odc-stac
 rasterio
-xarray
+xarray~=2022.9.0
 pytest
 rtree
 matplotlib
