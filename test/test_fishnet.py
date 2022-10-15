@@ -1,4 +1,5 @@
 import numpy as np
+import dask_geopandas
 
 from zonal_datacube.fishnet import create_fishnet_grid, fishnet
 
@@ -18,8 +19,13 @@ def test_create_fishnet():
 
 
 def test_fishnet_features(small_diamond_features):
+    dask_features = dask_geopandas.from_geopandas(
+        small_diamond_features,
+        npartitions=2
+    )
+
     fishnet_features = fishnet(
-        small_diamond_features, min_x=0, min_y=0, max_x=10, max_y=10, cell_size=1
+        dask_features, min_x=0, min_y=0, max_x=10, max_y=10, cell_size=1
     )
 
     assert len(fishnet_features.index) == 28

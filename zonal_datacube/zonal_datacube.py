@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Dict, List, Union, cast
 
 import dask.dataframe as dd
+import dask_geopandas
 import geopandas as gpd
 import pandas as pd
 import pystac
@@ -29,6 +30,9 @@ class ZonalDataCube:
         self,
         zones: gpd.GeoDataFrame,
         stac_items: List[pystac.Item],
+        resolution=None,
+        crs=None,
+        dtype=None
     ):
         """Creates a new zonal datacube. The datacube is lazy-loaded using the
         STAC item specifications, and only portions of the datacube that fall
@@ -45,6 +49,9 @@ class ZonalDataCube:
         # allow this to be passed as a param once we support
         # time series
         self.spatial_only = True
+        self.resolution = resolution
+        self.crs = crs
+        self.dtype = dtype
 
         self.zones = zones
         self.stac_items = self._get_stac_items(stac_items, self.spatial_only)
@@ -84,6 +91,9 @@ class ZonalDataCube:
             self._analyze_partition,
             self.stac_items,
             funcs,
+            resolution=self.resolution,
+            crs=self.crs,
+            dtype=self.dtype,
             meta=meta,
         )
 
@@ -100,23 +110,28 @@ class ZonalDataCube:
         return list(set(self.zones.columns.to_list()) - {"geometry"})
 
     @staticmethod
-    def _analyze_partition(partition, stac_items, funcs):
+    def _analyze_partition(partition, stac_items, funcs, resolution=None, crs=None, dtype=None):
         partition_results = []
 
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
             tile = wkt.loads(fishnet_wkt)
 
             # TODO how to determine CRS, resolution, dtype?
-            datacube = stac.load(stac_items, bbox=tile.bounds, crs="EPSG:4326", resolution=0.00025, dtype="float64")
+            datacube = stac.load(
+                stac_items,
+                bbox=tile.bounds,
+                crs=crs,
+                resolution=resolution,
+                dtype=dtype,
+            )
             masked_datacube = ZonalDataCube._set_no_data_mask(datacube)
 
             for _, zone in zones_per_tile.iterrows():
-                zone_geometry = wkt.loads(zone.zone_wkt)
                 geom_masked_datacube = ZonalDataCube._mask_datacube_by_geom(
-                    zone_geometry, masked_datacube, tile.bounds
+                    zone.geometry, masked_datacube, tile.bounds
                 )
 
-                zone_attributes = zone.drop("zone_wkt")
+                zone_attributes = zone.drop("fishnet_wkt")
                 result = zone_attributes.copy()
                 for func in funcs:
                     func_result = func.func(zone_attributes, geom_masked_datacube)
@@ -128,27 +143,15 @@ class ZonalDataCube:
 
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
-        # normalize geometries
-        zones.geometry = zones.buffer(0)
+        # convert to dask_geopandas
+        zones_dd = dask_geopandas.from_geopandas(zones, npartitions=npartitions)
+        zones_dd.geometry = zones.buffer(0)
 
         # fishnet features to make them partition more efficiently in Dask
-        fishnetted_zones = fishnet(zones, *bounds, cell_size)
+        fishnetted_zones = fishnet(zones_dd, *bounds, cell_size)
 
-        # Dask can't understand the geometry type,
-        # so just serialize to WKT and drop geometry
-        fishnetted_zones["zone_wkt"] = fishnetted_zones["geometry"].apply(
-            lambda x: x.wkt
-        )
-        del fishnetted_zones["geometry"]
-
-        dask_zones = dd.from_pandas(fishnetted_zones, npartitions=npartitions)
-
-        # Index based on the fishnet geometry so features
-        # that overlap the same fishnet grid cell
-        # are processed in the same partition.
-        # This ensures we only need to read the raster data
-        # only once per grid cell across the cluster
-        indexed_zones = dask_zones.set_index("fishnet_wkt", npartitions=npartitions)
+        # spatial index
+        indexed_zones = fishnetted_zones.spatial_shuffle()
 
         return indexed_zones
 
@@ -156,10 +159,8 @@ class ZonalDataCube:
     def _get_meta(zones, funcs):
         meta = dd.utils.make_meta(zones)
 
-        # drop geom columns for meta
-        if "zone_wkt" in meta:
-            meta = meta.drop("zone_wkt", axis=1)
-        elif "fishnet_wkt" in meta:
+        # drop intermediate columns for meta
+        if "fishnet_wkt" in meta:
             meta = meta.drop("fishnet_wkt", axis=1)
 
         for func in funcs:

@@ -12,3 +12,5 @@ rio-stac
 stackstac
 pystac_client
 s3fs
+pygeos~=0.12.0
+dask_geopandas
