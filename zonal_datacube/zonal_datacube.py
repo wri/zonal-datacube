@@ -144,7 +144,7 @@ class ZonalDataCube:
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
         # convert to dask_geopandas
         zones_dd = dask_geopandas.from_geopandas(zones, npartitions=npartitions)
-        zones_dd.geometry = zones.buffer(0)
+        zones_dd.geometry = zones_dd.buffer(0)
 
         # fishnet features to make them partition more efficiently in Dask
         fishnetted_zones = fishnet(zones_dd, *bounds, cell_size)
