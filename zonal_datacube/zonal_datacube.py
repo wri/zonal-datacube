@@ -131,9 +131,11 @@ class ZonalDataCube:
                     zone.geometry, masked_datacube, tile.bounds
                 )
 
-                result = zone.copy()
+                zone_attributes = zone.drop("fishnet_wkt")
+                result = zone_attributes.copy()
+
                 for func in funcs:
-                    func_result = func.func(zone, geom_masked_datacube)
+                    func_result = func.func(zone_attributes, geom_masked_datacube)
                     result = pd.concat([result, func_result])
 
                 partition_results.append(result)
@@ -143,7 +145,7 @@ class ZonalDataCube:
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
         # convert to dask_geopandas
-        zones_dd = dask_geopandas.from_geopandas(zones, npartitions=npartitions)
+        zones_dd = dask_geopandas.from_geopandas(zones, npartitions=npartitions).spatial_shuffle()
         zones_dd.geometry = zones_dd.buffer(0)
 
         # fishnet features to make them partition more efficiently in Dask
@@ -151,9 +153,9 @@ class ZonalDataCube:
 
         # spatial index
         # indexed_zones = fishnetted_zones.spatial_shuffle()
-        indexed_zones = fishnetted_zones.set_index("fishnet_wkt", npartitions=npartitions)
+        # indexed_zones = fishnetted_zones.set_index("fishnet_wkt", npartitions=npartitions)
 
-        return indexed_zones
+        return fishnetted_zones
 
     @staticmethod
     def _get_meta(zones, funcs):

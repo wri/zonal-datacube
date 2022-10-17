@@ -33,10 +33,10 @@ def fishnet(gdf, min_x, min_y, max_x, max_y, cell_size):
     fishnet_grid = dask_geopandas.from_geopandas(
         create_fishnet_grid(min_x, min_y, max_x, max_y, cell_size),
         npartitions=gdf.npartitions
-    )
+    ).spatial_shuffle()
 
     # preserve geometry in second column for join
-    fishnet_grid["fishnet_geometry"] = fishnet_grid["geometry"]
+    fishnet_grid["fishnet_wkt"] = fishnet_grid.geometry.apply(lambda x: wkt.dumps(x))
 
     # TODO default predicate intersects might occasionally grab extra tiles that only
     # touch, but doesn't seem like geopandas has a predicate for geometries
@@ -44,11 +44,10 @@ def fishnet(gdf, min_x, min_y, max_x, max_y, cell_size):
     join_result = gdf.sjoin(fishnet_grid)
 
     # intersect the fishnet geometry to apply it to each geometry
-    join_result.geometry = join_result.geometry.intersection(join_result.fishnet_geometry)
-    join_result["fishnet_wkt"] = join_result.fishnet_geometry.apply(lambda x: wkt.dumps(x))
+    # join_result.geometry = join_result.geometry.intersection(join_result.fishnet_geometry)
+    # join_result["fishnet_wkt"] = join_result.fishnet_geometry.apply(lambda x: wkt.dumps(x))
 
     # remove intermediate columns
     del join_result["index_right"]
-    del join_result["fishnet_geometry"]
 
     return join_result
