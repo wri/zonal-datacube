@@ -32,7 +32,9 @@ class ZonalDataCube:
         stac_items: List[pystac.Item],
         resolution=None,
         crs=None,
-        dtype=None
+        dtype=None,
+        cell_size=1,
+        npartitions=200,
     ):
         """Creates a new zonal datacube. The datacube is lazy-loaded using the
         STAC item specifications, and only portions of the datacube that fall
@@ -59,8 +61,8 @@ class ZonalDataCube:
 
         # TODO calculate optimal cell size and partitions based on
         #  STAC items and features
-        self.cell_size = 1
-        self.npartitions = 200
+        self.cell_size = cell_size
+        self.npartitions = npartitions
 
         self.bounds = self._get_rounded_bounding_box(self.zones.total_bounds, self.cell_size)
         self.dask_zones = None  # get on first analysis
@@ -110,7 +112,7 @@ class ZonalDataCube:
         return list(set(self.zones.columns.to_list()) - {"geometry"})
 
     @staticmethod
-    def _analyze_partition(partition, stac_items, funcs, resolution=None, crs=None, dtype=None):
+    def _analyze_partition(partition, stac_items, funcs, masks=[], groupby=[], resolution=None, crs=None, dtype=None):
         partition_results = []
 
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
@@ -131,8 +133,16 @@ class ZonalDataCube:
                     zone.geometry, masked_datacube, tile.bounds
                 )
 
+                for mask in masks:
+                    geom_masked_datacube = geom_masked_datacube.where(geom_masked_datacube[mask].notnull())
+
                 zone_attributes = zone.drop("fishnet_wkt")
                 result = zone_attributes.copy()
+
+                pd_datacube = geom_masked_datacube.to_pandas()
+                pd_datacube.groupby(groupby).agg({
+                    ""
+                })
 
                 for func in funcs:
                     func_result = func.func(zone_attributes, geom_masked_datacube)
