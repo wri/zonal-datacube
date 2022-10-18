@@ -100,6 +100,9 @@ class ZonalDataCube:
         )
 
         agg_spec = combine_agg_dicts(funcs)
+        agg_spec.update({
+            "geometry": "first"
+        })
         grouped_results = (
             mapped_partitions.groupby(self.attribute_columns)
             .agg(agg_spec)
