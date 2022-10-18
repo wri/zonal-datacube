@@ -32,7 +32,9 @@ class ZonalDataCube:
         stac_items: List[pystac.Item],
         resolution=None,
         crs=None,
-        dtype=None
+        dtype=None,
+        cell_size=1,
+        npartitions=200,
     ):
         """Creates a new zonal datacube. The datacube is lazy-loaded using the
         STAC item specifications, and only portions of the datacube that fall
@@ -59,8 +61,8 @@ class ZonalDataCube:
 
         # TODO calculate optimal cell size and partitions based on
         #  STAC items and features
-        self.cell_size = 1
-        self.npartitions = 200
+        self.cell_size = cell_size
+        self.npartitions = npartitions
 
         self.bounds = self._get_rounded_bounding_box(self.zones.total_bounds, self.cell_size)
         self.dask_zones = None  # get on first analysis
