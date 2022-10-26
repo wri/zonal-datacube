@@ -1,0 +1,24 @@
+# IDE Fragments
+/.vscode
+*__pycache__*
+*.idea*
+
+# MyPy
+.mypy_cache
+
+# GIT
+.git
+
+# Environment Files
+/.env
+
+# TF stuff
+terraform/*
+
+# Virtualenvs
+*venv*
+
+# pytest
+.pytest_cache
+
+.DS_Store

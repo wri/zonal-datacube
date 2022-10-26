@@ -1,0 +1,16 @@
+dask
+dask[distributed]
+geopandas
+shapely
+odc-stac
+rasterio
+xarray~=2022.9.0
+pytest
+rtree
+matplotlib
+rio-stac
+stackstac
+pystac_client
+s3fs
+pygeos~=0.12.0
+dask-geopandas
