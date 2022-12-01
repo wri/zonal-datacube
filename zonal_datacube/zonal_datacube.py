@@ -64,9 +64,10 @@ class ZonalDataCube:
         self.cell_size = cell_size
         self.npartitions = npartitions
 
-        self.bounds = self._get_rounded_bounding_box(self.zones.total_bounds, self.cell_size)
+        self.bounds = self._get_rounded_bounding_box(
+            self.zones.total_bounds, self.cell_size
+        )
         self.dask_zones = None  # get on first analysis
-
 
     def analyze(self, funcs: List[AnalysisFunction]):
         """Run analyses on the datacube. This can default zonal statistics
@@ -100,9 +101,7 @@ class ZonalDataCube:
         )
 
         agg_spec = combine_agg_dicts(funcs)
-        agg_spec.update({
-            "geometry": "first"
-        })
+        agg_spec.update({"geometry": "first"})
         grouped_results = (
             mapped_partitions.groupby(self.attribute_columns)
             .agg(agg_spec)
@@ -115,7 +114,9 @@ class ZonalDataCube:
         return list(set(self.zones.columns.to_list()) - {"geometry"})
 
     @staticmethod
-    def _analyze_partition(partition, stac_items, funcs, resolution=None, crs=None, dtype=None):
+    def _analyze_partition(
+        partition, stac_items, funcs, resolution=None, crs=None, dtype=None
+    ):
         partition_results = []
 
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
@@ -150,7 +151,9 @@ class ZonalDataCube:
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
         # convert to dask_geopandas
-        zones_dd = dask_geopandas.from_geopandas(zones, npartitions=npartitions).spatial_shuffle()
+        zones_dd = dask_geopandas.from_geopandas(
+            zones, npartitions=npartitions
+        ).spatial_shuffle()
         zones_dd.geometry = zones_dd.buffer(0)
 
         # fishnet features to make them partition more efficiently in Dask
@@ -180,7 +183,6 @@ class ZonalDataCube:
 
         return meta
 
-
     def _get_stac_items(self, stac_items, spatial_only):
         """Create copies of the STAC items and mutate any properties for our
         processing."""
@@ -203,8 +205,8 @@ class ZonalDataCube:
         if not geom.is_valid:
             geom = geom.buffer(0)
 
-        height = datacube.longitude.shape[0]
-        width = datacube.latitude.shape[0]
+        height = datacube.latitude.shape[0]
+        width = datacube.longitude.shape[0]
 
         geom_mask = features.geometry_mask(
             [geom],
@@ -233,9 +235,7 @@ class ZonalDataCube:
         return datacube
 
     @staticmethod
-    def _get_rounded_bounding_box(
-            bounds, cell_size
-    ):
+    def _get_rounded_bounding_box(bounds, cell_size):
         """Round bounding box to divide evenly into cell_size x cell_size tiles from
         plane origin."""
         return (
