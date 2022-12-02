@@ -28,7 +28,7 @@ class ZonalDataCube:
 
     def __init__(
         self,
-        zones: gpd.GeoDataFrame,
+        zones: Union[gpd.GeoDataframe, dask_geopandas.GeoDataFrame],
         stac_items: List[pystac.Item],
         resolution=None,
         crs=None,
@@ -41,8 +41,9 @@ class ZonalDataCube:
         in the zones will be loaded at analysis time.
 
         :param zones:
-            A GeoPandas DataFrame with a geometry column containing polygonal zones,
-            as well as any other attributes related to the zones.
+            A GeoPandas or a Dask Geopandas DataFrame with a geometry column
+            containing polygonal zones, as well as any other attributes related to
+            the zones.
         :param stac_items:
             A list of STAC Items
             These will be read into a XArray dataset where each item is a data variable.
