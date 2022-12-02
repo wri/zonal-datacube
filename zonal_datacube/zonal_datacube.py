@@ -152,7 +152,7 @@ class ZonalDataCube:
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
         # convert to dask_geopandas
-        if not isinstance(zones, dd.GeoDataFrame):
+        if not isinstance(zones, dask_geopandas.GeoDataFrame):
             zones = dask_geopandas.from_geopandas(
                 zones, npartitions=npartitions
             ).spatial_shuffle()
