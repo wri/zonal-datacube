@@ -28,7 +28,7 @@ class ZonalDataCube:
 
     def __init__(
         self,
-        zones: Union[gpd.GeoDataframe, dask_geopandas.GeoDataFrame],
+        zones: Union[gpd.GeoDataFrame, dask_geopandas.GeoDataFrame],
         stac_items: List[pystac.Item],
         resolution=None,
         crs=None,
