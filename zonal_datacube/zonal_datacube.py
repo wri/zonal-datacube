@@ -151,13 +151,18 @@ class ZonalDataCube:
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
         # convert to dask_geopandas
-        zones_dd = dask_geopandas.from_geopandas(
-            zones, npartitions=npartitions
-        ).spatial_shuffle()
-        zones_dd.geometry = zones_dd.buffer(0)
+        if not isinstance(zones, dd.GeoDataFrame):
+            zones = dask_geopandas.from_geopandas(
+                zones, npartitions=npartitions
+            ).spatial_shuffle()
+            zones.geometry = zones.buffer(0)
 
+        # small npartitions resulting from large blocksize in dd.read_csv leads to poor performance
+        # TODO: put an upper bound to npartitions where too many npartitions leads same issue
+        if zones.npartitions < npartitions:
+            zones = zones.repartition(npartitions=npartitions)
         # fishnet features to make them partition more efficiently in Dask
-        fishnetted_zones = fishnet(zones_dd, *bounds, cell_size)
+        fishnetted_zones = fishnet(zones, *bounds, cell_size)
 
         # spatial index
         # indexed_zones = fishnetted_zones.spatial_shuffle()
