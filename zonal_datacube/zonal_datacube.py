@@ -118,11 +118,12 @@ class ZonalDataCube:
     def _analyze_partition(
         partition, stac_items, funcs, resolution=None, crs=None, dtype=None
     ):
-        partition_results = []
+        partition_results = pd.DataFrame()
 
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
             tile = wkt.loads(fishnet_wkt)
 
+            zones_per_tile.drop(columns="fishnet_wkt", inplace=True)
             # TODO how to determine CRS, resolution, dtype?
             datacube = stac.load(
                 stac_items,
@@ -133,21 +134,30 @@ class ZonalDataCube:
             )
             masked_datacube = ZonalDataCube._set_no_data_mask(datacube)
 
-            for _, zone in zones_per_tile.iterrows():
+            def apply_func(zone):
                 geom_masked_datacube = ZonalDataCube._mask_datacube_by_geom(
                     zone.geometry, masked_datacube, tile.bounds
                 )
 
-                zone_attributes = zone.drop("fishnet_wkt")
-                result = zone_attributes.copy()
+                return funcs[0].func(zone, geom_masked_datacube)
 
-                for func in funcs:
-                    func_result = func.func(zone_attributes, geom_masked_datacube)
-                    result = pd.concat([result, func_result])
+            # for _, zone in zones_per_tile.iterrows():
+            #     geom_masked_datacube = ZonalDataCube._mask_datacube_by_geom(
+            #         zone.geometry, masked_datacube, tile.bounds
+            #     )
 
-                partition_results.append(result)
+            #     zone_attributes = zone.drop("fishnet_wkt")
+            #     result = zone_attributes.copy()
 
-        return pd.DataFrame(partition_results)
+            #     for func in funcs:
+            #         func_result = func.func(zone_attributes, geom_masked_datacube)
+            #         result = pd.concat([result, func_result])
+
+            #     partition_results.append(result)
+            zones_per_tile["count"] = zones_per_tile.apply(apply_func, axis=1)
+            partition_results = pd.concat([partition_results, zones_per_tile], axis=0)
+
+        return partition_results
 
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
