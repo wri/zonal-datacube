@@ -35,6 +35,7 @@ class ZonalDataCube:
         dtype=None,
         cell_size=1,
         npartitions=200,
+        bounds=None,
     ):
         """Creates a new zonal datacube. The datacube is lazy-loaded using the
         STAC item specifications, and only portions of the datacube that fall
@@ -65,9 +66,11 @@ class ZonalDataCube:
         self.cell_size = cell_size
         self.npartitions = npartitions
 
-        self.bounds = self._get_rounded_bounding_box(
-            self.zones.total_bounds, self.cell_size
-        )
+        self.bounds = bounds
+        if bounds is None:
+            self.bounds = self._get_rounded_bounding_box(
+                self.zones.total_bounds, self.cell_size
+            )
         self.dask_zones = None  # get on first analysis
 
     def analyze(self, funcs: List[AnalysisFunction]):
@@ -83,7 +86,6 @@ class ZonalDataCube:
             A GeoPandas DataFrame containing the original geometry and attributes,
             as well additional attributes added from the analyses.
         """
-
         # get on first analysis and then save as attribute
         if self.dask_zones is None:
             self.dask_zones = self._get_dask_zones(
@@ -102,14 +104,14 @@ class ZonalDataCube:
         )
 
         agg_spec = combine_agg_dicts(funcs)
-        agg_spec.update({"geometry": "first"})
+        # agg_spec.update({"geometry": "first"})
         grouped_results = (
             mapped_partitions.groupby(self.attribute_columns)
             .agg(agg_spec)
             .reset_index()
         )
 
-        return grouped_results.compute()
+        return grouped_results
 
     def _get_attribute_columns(self):
         return list(set(self.zones.columns.to_list()) - {"geometry"})
@@ -134,12 +136,15 @@ class ZonalDataCube:
             )
             masked_datacube = ZonalDataCube._set_no_data_mask(datacube)
 
-            def apply_func(zone):
+            def apply_func(
+                zone,
+                func,
+            ):
                 geom_masked_datacube = ZonalDataCube._mask_datacube_by_geom(
                     zone.geometry, masked_datacube, tile.bounds
                 )
 
-                return funcs[0].func(zone, geom_masked_datacube)
+                return list(func.func.values())[0](zone, geom_masked_datacube)
 
             # for _, zone in zones_per_tile.iterrows():
             #     geom_masked_datacube = ZonalDataCube._mask_datacube_by_geom(
@@ -154,7 +159,11 @@ class ZonalDataCube:
             #         result = pd.concat([result, func_result])
 
             #     partition_results.append(result)
-            zones_per_tile["count"] = zones_per_tile.apply(apply_func, axis=1)
+            for func in funcs:
+                zones_per_tile[list(func.func.keys())[0]] = zones_per_tile.apply(
+                    apply_func, args=(func,), axis=1
+                )
+            zones_per_tile.drop(columns="geometry", inplace=True)
             partition_results = pd.concat([partition_results, zones_per_tile], axis=0)
 
         return partition_results
@@ -172,6 +181,7 @@ class ZonalDataCube:
         # TODO: put an upper bound to npartitions where too many npartitions leads same issue
         if zones.npartitions < npartitions:
             zones = zones.repartition(npartitions=npartitions)
+        zones = zones.spatial_shuffle()
         # fishnet features to make them partition more efficiently in Dask
         fishnetted_zones = fishnet(zones, *bounds, cell_size)
 
@@ -188,6 +198,10 @@ class ZonalDataCube:
         # drop intermediate columns for meta
         if "fishnet_wkt" in meta:
             meta = meta.drop("fishnet_wkt", axis=1)
+
+        # drop intermediate columns for meta
+        if "geometry" in meta:
+            meta = meta.drop("geometry", axis=1)
 
         for func in funcs:
             if func.meta:
