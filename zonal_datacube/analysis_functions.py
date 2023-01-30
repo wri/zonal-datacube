@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Dict, Literal, Optional, Union
+from typing import Callable, Dict, Optional, Union
 
 from geopandas import GeoDataFrame
 from numpy import dtype
@@ -15,6 +15,7 @@ agg_functions_type = Literal["sum", "mean", "max", "min"]
 class AnalysisFunction:
     """Analysis function."""
 
+    name: str
     func: Callable[[GeoDataFrame, Dataset], Union[dtype, DataFrame]]
     agg: Union[Dict[str, agg_functions_type], agg_functions_type]
     meta: Optional[Dict[str, dtype]] = None
@@ -50,36 +51,42 @@ def _hectare_area_func(datacube, zone):
 
 
 sum = AnalysisFunction(
+    name="sum",
     func=_sum_func,
     agg={"sum": "sum"},
     meta={"sum": "float64"},
 )
 
 count = AnalysisFunction(
+    name="count",
     func=_count_func,
     agg={"count": "sum"},
     meta={"count": "float64"},
 )
 
 mean = AnalysisFunction(
+    name="mean",
     func=_mean_func,
     agg={"mean": "mean"},
     meta={"mean": "float64"},
 )
 
 min = AnalysisFunction(
+    name="min",
     func=_min_func,
     agg={"min": "min"},
     meta={"min": "float64"},
 )
 
 max = AnalysisFunction(
+    name="max",
     func=_max_func,
     agg={"max": "max"},
     meta={"max": "float64"},
 )
 
 hectare_area = AnalysisFunction(
+    name="hectare_area",
     func=_hectare_area_func,
     agg={"hectare_area": "sum"},
     meta={"hectare_area": "float64"},
