@@ -4,12 +4,15 @@ from typing import Dict, List, Union, cast
 import dask.dataframe as dd
 import dask_geopandas
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import pystac
 import rasterio
 from odc import stac
 from rasterio import features
 from shapely import wkt
+from xarray import DataArray
+from dask.distributed import print as dprint
 
 from .analysis_functions import (
     AnalysisFunction,
@@ -36,6 +39,8 @@ class ZonalDataCube:
         cell_size=1,
         npartitions=200,
         bounds=None,
+        groupby_stac_items=None,
+        groupby_variable="data",
     ):
         """Creates a new zonal datacube. The datacube is lazy-loaded using the
         STAC item specifications, and only portions of the datacube that fall
@@ -49,7 +54,6 @@ class ZonalDataCube:
             A list of STAC Items
             These will be read into a XArray dataset where each item is a data variable.
         """
-
         # allow this to be passed as a param once we support
         # time series
         self.spatial_only = True
@@ -61,6 +65,11 @@ class ZonalDataCube:
         self.stac_items = self._get_stac_items(stac_items, self.spatial_only)
         self.attribute_columns = self._get_attribute_columns()
 
+        if groupby_stac_items:
+            self.groupby_stac_items = self._get_stac_items(
+                groupby_stac_items, self.spatial_only
+            )
+        self.groupby_variable = groupby_variable
         # TODO calculate optimal cell size and partitions based on
         #  STAC items and features
         self.cell_size = cell_size
@@ -101,6 +110,9 @@ class ZonalDataCube:
             crs=self.crs,
             dtype=self.dtype,
             meta=meta,
+            groupby_stac_items=getattr(self, "groupby_stac_items", None),
+            groupby_variable=self.groupby_variable,
+            attribute_columns=self.attribute_columns,
         )
 
         agg_spec = combine_agg_dicts(funcs)
@@ -118,10 +130,18 @@ class ZonalDataCube:
 
     @staticmethod
     def _analyze_partition(
-        partition, stac_items, funcs, resolution=None, crs=None, dtype=None
+        partition,
+        stac_items,
+        funcs,
+        resolution=None,
+        crs=None,
+        dtype=None,
+        groupby_stac_items=None,
+        groupby_variable="data",
+        attribute_columns=None,
     ):
-        partition_results = pd.DataFrame()
-
+        meta = ZonalDataCube._get_meta(partition, funcs)
+        partition_results = pd.DataFrame(columns=meta)
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
             tile = wkt.loads(fishnet_wkt)
 
@@ -143,30 +163,40 @@ class ZonalDataCube:
                 geom_masked_datacube = ZonalDataCube._mask_datacube_by_geom(
                     zone.geometry, masked_datacube, tile.bounds
                 )
+                if groupby_stac_items:
+                    groupby_data = stac.load(
+                        groupby_stac_items,
+                        bbox=tile.bounds,
+                        crs=crs,
+                        resolution=resolution,
+                        dtype=dtype,
+                    )
+                    grouped = geom_masked_datacube.groupby(
+                        groupby_data[groupby_variable][:, 0, 0]
+                    )
 
-                return list(func.func.values())[0](zone, geom_masked_datacube)
+                    result = grouped.apply(func.func, args=(zone,)).to_pandas()
+                    # get schema to match passed meta
+                    result = result.combine_first(
+                        pd.Series(np.zeros_like(func.meta), index=func.meta.keys()),
+                    ).sort_index()
+                    return result
 
-            # for _, zone in zones_per_tile.iterrows():
-            #     geom_masked_datacube = ZonalDataCube._mask_datacube_by_geom(
-            #         zone.geometry, masked_datacube, tile.bounds
-            #     )
+                return func.func(geom_masked_datacube, zone)
 
-            #     zone_attributes = zone.drop("fishnet_wkt")
-            #     result = zone_attributes.copy()
-
-            #     for func in funcs:
-            #         func_result = func.func(zone_attributes, geom_masked_datacube)
-            #         result = pd.concat([result, func_result])
-
-            #     partition_results.append(result)
             for func in funcs:
-                zones_per_tile[list(func.func.keys())[0]] = zones_per_tile.apply(
-                    apply_func, args=(func,), axis=1
+                result = zones_per_tile.apply(apply_func, args=(func,), axis=1)
+                if isinstance(result, pd.DataFrame):
+                    zones_per_tile = zones_per_tile.join(result)
+                else:
+                    zones_per_tile[func.name] = result
+                zones_per_tile.drop(columns="geometry", inplace=True)
+                partition_results = pd.concat(
+                    [partition_results, zones_per_tile], axis=0
                 )
-            zones_per_tile.drop(columns="geometry", inplace=True)
-            partition_results = pd.concat([partition_results, zones_per_tile], axis=0)
+                # dprint("columns", partition_results.columns)
 
-        return partition_results
+        return partition_results[meta.keys()]
 
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
