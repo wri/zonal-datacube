@@ -95,6 +95,11 @@ class ZonalDataCube:
             A GeoPandas DataFrame containing the original geometry and attributes,
             as well additional attributes added from the analyses.
         """
+        if getattr(self, "groupby_stac_items", None) and len(funcs) > 1:
+            raise NotImplementedError(
+                "Groupby analysis only supported with one analysis function."
+            )
+
         # get on first analysis and then save as attribute
         if self.dask_zones is None:
             self.dask_zones = self._get_dask_zones(
