@@ -160,6 +160,14 @@ class ZonalDataCube:
                 dtype=dtype,
             )
             masked_datacube = ZonalDataCube._set_no_data_mask(datacube)
+            if groupby_stac_items:
+                groupby_data = stac.load(
+                    groupby_stac_items,
+                    bbox=tile.bounds,
+                    crs=crs,
+                    resolution=resolution,
+                    # dtype=dtype,
+                )
 
             def apply_func(
                 zone,
@@ -169,17 +177,9 @@ class ZonalDataCube:
                     zone.geometry, masked_datacube, tile.bounds
                 )
                 if groupby_stac_items:
-                    groupby_data = stac.load(
-                        groupby_stac_items,
-                        bbox=tile.bounds,
-                        crs=crs,
-                        resolution=resolution,
-                        dtype=dtype,
-                    )
                     grouped = geom_masked_datacube.groupby(
-                        groupby_data[groupby_variable][:, 0, 0]
+                        groupby_data[groupby_variable][0, :, :]
                     )
-
                     result = grouped.apply(func.func, args=(zone,)).to_pandas()
                     # get schema to match passed meta
                     result = result.combine_first(
@@ -199,7 +199,6 @@ class ZonalDataCube:
                 partition_results = pd.concat(
                     [partition_results, zones_per_tile], axis=0
                 )
-                # dprint("columns", partition_results.columns)
 
         return partition_results[meta.keys()]
 
