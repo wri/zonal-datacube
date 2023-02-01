@@ -1,0 +1,39 @@
+id,class
+0,no_data
+10,agriculture
+11,agriculture
+12,agriculture
+20,agriculture
+30,agriculture
+40,agriculture
+50,forest
+60,forest
+61,forest
+62,forest
+70,forest
+71,forest
+72,forest
+80,forest
+81,forest
+82,forest
+90,forest
+100,forest
+160,forest
+170,forest
+110,grassland
+130,grassland
+180,wetland
+190,settlement
+120,shrubland
+121,shrubland
+122,shrubland
+140,sparse vegetation
+150,sparse vegetation
+151,sparse vegetation
+152,sparse vegetation
+153,sparse vegetation
+200,bare
+201,bare
+202,bare
+210,water
+220,permanent snow and ice

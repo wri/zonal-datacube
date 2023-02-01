@@ -4,12 +4,15 @@ from typing import Dict, List, Union, cast
 import dask.dataframe as dd
 import dask_geopandas
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import pystac
 import rasterio
 from odc import stac
 from rasterio import features
 from shapely import wkt
+from xarray import DataArray
+from dask.distributed import print as dprint
 
 from .analysis_functions import (
     AnalysisFunction,
@@ -28,26 +31,29 @@ class ZonalDataCube:
 
     def __init__(
         self,
-        zones: gpd.GeoDataFrame,
+        zones: Union[gpd.GeoDataFrame, dask_geopandas.GeoDataFrame],
         stac_items: List[pystac.Item],
         resolution=None,
         crs=None,
         dtype=None,
         cell_size=1,
         npartitions=200,
+        bounds=None,
+        groupby_stac_items=None,
+        groupby_variable="data",
     ):
         """Creates a new zonal datacube. The datacube is lazy-loaded using the
         STAC item specifications, and only portions of the datacube that fall
         in the zones will be loaded at analysis time.
 
         :param zones:
-            A GeoPandas DataFrame with a geometry column containing polygonal zones,
-            as well as any other attributes related to the zones.
+            A GeoPandas or a Dask Geopandas DataFrame with a geometry column
+            containing polygonal zones, as well as any other attributes related to
+            the zones.
         :param stac_items:
             A list of STAC Items
             These will be read into a XArray dataset where each item is a data variable.
         """
-
         # allow this to be passed as a param once we support
         # time series
         self.spatial_only = True
@@ -59,14 +65,22 @@ class ZonalDataCube:
         self.stac_items = self._get_stac_items(stac_items, self.spatial_only)
         self.attribute_columns = self._get_attribute_columns()
 
+        if groupby_stac_items:
+            self.groupby_stac_items = self._get_stac_items(
+                groupby_stac_items, self.spatial_only
+            )
+        self.groupby_variable = groupby_variable
         # TODO calculate optimal cell size and partitions based on
         #  STAC items and features
         self.cell_size = cell_size
         self.npartitions = npartitions
 
-        self.bounds = self._get_rounded_bounding_box(self.zones.total_bounds, self.cell_size)
+        self.bounds = bounds
+        if bounds is None:
+            self.bounds = self._get_rounded_bounding_box(
+                self.zones.total_bounds, self.cell_size
+            )
         self.dask_zones = None  # get on first analysis
-
 
     def analyze(self, funcs: List[AnalysisFunction]):
         """Run analyses on the datacube. This can default zonal statistics
@@ -81,6 +95,10 @@ class ZonalDataCube:
             A GeoPandas DataFrame containing the original geometry and attributes,
             as well additional attributes added from the analyses.
         """
+        if getattr(self, "groupby_stac_items", None) and len(funcs) > 1:
+            raise NotImplementedError(
+                "Groupby analysis only supported with one analysis function."
+            )
 
         # get on first analysis and then save as attribute
         if self.dask_zones is None:
@@ -97,30 +115,42 @@ class ZonalDataCube:
             crs=self.crs,
             dtype=self.dtype,
             meta=meta,
+            groupby_stac_items=getattr(self, "groupby_stac_items", None),
+            groupby_variable=self.groupby_variable,
+            attribute_columns=self.attribute_columns,
         )
 
         agg_spec = combine_agg_dicts(funcs)
-        agg_spec.update({
-            "geometry": "first"
-        })
+        # agg_spec.update({"geometry": "first"})
         grouped_results = (
             mapped_partitions.groupby(self.attribute_columns)
             .agg(agg_spec)
             .reset_index()
         )
 
-        return grouped_results.compute()
+        return grouped_results
 
     def _get_attribute_columns(self):
         return list(set(self.zones.columns.to_list()) - {"geometry"})
 
     @staticmethod
-    def _analyze_partition(partition, stac_items, funcs, resolution=None, crs=None, dtype=None):
-        partition_results = []
-
+    def _analyze_partition(
+        partition,
+        stac_items,
+        funcs,
+        resolution=None,
+        crs=None,
+        dtype=None,
+        groupby_stac_items=None,
+        groupby_variable="data",
+        attribute_columns=None,
+    ):
+        meta = ZonalDataCube._get_meta(partition, funcs)
+        partition_results = pd.DataFrame(columns=meta)
         for fishnet_wkt, zones_per_tile in partition.groupby("fishnet_wkt"):
             tile = wkt.loads(fishnet_wkt)
 
+            zones_per_tile.drop(columns="fishnet_wkt", inplace=True)
             # TODO how to determine CRS, resolution, dtype?
             datacube = stac.load(
                 stac_items,
@@ -130,31 +160,64 @@ class ZonalDataCube:
                 dtype=dtype,
             )
             masked_datacube = ZonalDataCube._set_no_data_mask(datacube)
+            if groupby_stac_items:
+                groupby_data = stac.load(
+                    groupby_stac_items,
+                    bbox=tile.bounds,
+                    crs=crs,
+                    resolution=resolution,
+                    # dtype=dtype,
+                )
 
-            for _, zone in zones_per_tile.iterrows():
+            def apply_func(
+                zone,
+                func,
+            ):
                 geom_masked_datacube = ZonalDataCube._mask_datacube_by_geom(
                     zone.geometry, masked_datacube, tile.bounds
                 )
+                if groupby_stac_items:
+                    grouped = geom_masked_datacube.groupby(
+                        groupby_data[groupby_variable][0, :, :]
+                    )
+                    result = grouped.apply(func.func, args=(zone,)).to_pandas()
+                    # get schema to match passed meta
+                    result = result.combine_first(
+                        pd.Series(np.zeros_like(func.meta), index=func.meta.keys()),
+                    ).sort_index()
+                    return result
 
-                zone_attributes = zone.drop("fishnet_wkt")
-                result = zone_attributes.copy()
+                return func.func(geom_masked_datacube, zone)
 
-                for func in funcs:
-                    func_result = func.func(zone_attributes, geom_masked_datacube)
-                    result = pd.concat([result, func_result])
+            for func in funcs:
+                result = zones_per_tile.apply(apply_func, args=(func,), axis=1)
+                if isinstance(result, pd.DataFrame):
+                    zones_per_tile = zones_per_tile.join(result)
+                else:
+                    zones_per_tile[func.name] = result
+                zones_per_tile.drop(columns="geometry", inplace=True)
+                partition_results = pd.concat(
+                    [partition_results, zones_per_tile], axis=0
+                )
 
-                partition_results.append(result)
-
-        return pd.DataFrame(partition_results)
+        return partition_results[meta.keys()]
 
     @staticmethod
     def _get_dask_zones(zones, bounds, cell_size, npartitions):
         # convert to dask_geopandas
-        zones_dd = dask_geopandas.from_geopandas(zones, npartitions=npartitions).spatial_shuffle()
-        zones_dd.geometry = zones_dd.buffer(0)
+        if not isinstance(zones, dask_geopandas.GeoDataFrame):
+            zones = dask_geopandas.from_geopandas(
+                zones, npartitions=npartitions
+            ).spatial_shuffle()
+            zones.geometry = zones.buffer(0)
 
+        # small npartitions resulting from large blocksize in dd.read_csv leads to poor performance
+        # TODO: put an upper bound to npartitions where too many npartitions leads same issue
+        if zones.npartitions < npartitions:
+            zones = zones.repartition(npartitions=npartitions)
+        zones = zones.spatial_shuffle()
         # fishnet features to make them partition more efficiently in Dask
-        fishnetted_zones = fishnet(zones_dd, *bounds, cell_size)
+        fishnetted_zones = fishnet(zones, *bounds, cell_size)
 
         # spatial index
         # indexed_zones = fishnetted_zones.spatial_shuffle()
@@ -170,6 +233,10 @@ class ZonalDataCube:
         if "fishnet_wkt" in meta:
             meta = meta.drop("fishnet_wkt", axis=1)
 
+        # drop intermediate columns for meta
+        if "geometry" in meta:
+            meta = meta.drop("geometry", axis=1)
+
         for func in funcs:
             if func.meta:
                 for col, type in func.meta.items():
@@ -179,7 +246,6 @@ class ZonalDataCube:
                 meta[col] = pd.Series(dtype="float64")
 
         return meta
-
 
     def _get_stac_items(self, stac_items, spatial_only):
         """Create copies of the STAC items and mutate any properties for our
@@ -203,8 +269,8 @@ class ZonalDataCube:
         if not geom.is_valid:
             geom = geom.buffer(0)
 
-        height = datacube.longitude.shape[0]
-        width = datacube.latitude.shape[0]
+        height = datacube.latitude.shape[0]
+        width = datacube.longitude.shape[0]
 
         geom_mask = features.geometry_mask(
             [geom],
@@ -233,9 +299,7 @@ class ZonalDataCube:
         return datacube
 
     @staticmethod
-    def _get_rounded_bounding_box(
-            bounds, cell_size
-    ):
+    def _get_rounded_bounding_box(bounds, cell_size):
         """Round bounding box to divide evenly into cell_size x cell_size tiles from
         plane origin."""
         return (
